@@ -9,22 +9,24 @@
 /*****************************************************************************/
 /***                                                                       ***/
 /***                                                                       ***/
-/***                  ADC CONVERSION EXAMPLE (VYBRID)                      ***/
+/***                           GPIO EXAMPLE                      	   ***/
 /***                                                                       ***/
 /***                                                                       ***/
 /*****************************************************************************/
 /*** File:     gpio.c                                                      ***/
 /*** Author:   C. Canbaz                                                   ***/
 /*** Created:  30.10.2015                                                  ***/
-/*** Modified: 25.11.2015                                                  ***/
+/*** Modified: 24.06.2016 PJ                                               ***/
 /***                                                                       ***/
 /*** Description                                                           ***/
 /*** -----------                                                           ***/
-/*** Show how the GPIO ports are used in Linux on Vybrid architecture.     ***/
+/*** Show how the GPIO ports are used on F&S Boards.			   ***/
 /***                                                                       ***/
 /*** Compile with:                                                         ***/
-/***              arm-linux-gcc -o gpio gpio.c                               ***/
+/***              arm-linux-gcc -o gpio gpio.c                             ***/
 /***                                                                       ***/
+/*** Modification History:                                                 ***/
+/*** 24.06.2016 PJ: Improve Code now the gpio can work for all boards      ***/
 /*****************************************************************************/
 /*** THIS CODE AND INFORMATION IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY ***/
 /*** KIND,  EITHER EXPRESSED OR IMPLIED,  INCLUDING BUT NOT LIMITED TO THE ***/
@@ -32,11 +34,11 @@
 /*** PURPOSE.                                                              ***/
 /*****************************************************************************/
 
+#include <stdlib.h>		/* strtoul() */
 #include <stdio.h>		/* perror() */
 #include <unistd.h>		/* write(), close(), fsync(), sleep() */
 #include <fcntl.h>		/* open(), O_WRONLY */
 #include <string.h>		/* strlen() */
-
 
 
 /* File paths */
@@ -46,31 +48,6 @@
 #define SYS_VAL "/value"
 
 
-/*****************************************************************************
-*** Function:    int createGPIO(const char *pinNr)                         ***
-***                                                                        ***
-*** Parameters:  pinNr: Number of GPIO pin                                 ***
-***                                                                        ***
-*** Return:      -                                                         ***
-***                                                                        ***
-*** Description                                                            ***
-*** -----------                                                            ***
-*** Creates the GPIO files in /sys/class/gpio.                             ***
-*****************************************************************************/
-int createGPIO(const char *pinNr)
-{
-	// Open Filedescriptor
-	int fd=getFileDeskriptor(SYS_EXP,O_WRONLY);
-	
-	// Create GPIO Files
-	printf("Use GPIO%s\n",pinNr);
-	write(fd,pinNr,sizeof(pinNr));
-	fsync(fd);
-	close(fd);
-	return 0;
-}
-
-	
 /*****************************************************************************
 *** Function:    int getFileDeskriptor(const char *file_path,              ***
 ***                              const int MODE)                           ***
@@ -87,13 +64,39 @@ int createGPIO(const char *pinNr)
 *****************************************************************************/
 int getFileDeskriptor(const char *file_path, const int MODE)
 {
-	int fd = open (file_path, MODE);
+	int fd = open(file_path, MODE);
+
 	if(fd<0)
 	{
 		perror(file_path);
 		return 1;
 	}	
 	return fd;
+}
+
+
+/*****************************************************************************
+*** Function:    int createGPIO(const char *pinNr)                         ***
+***                                                                        ***
+*** Parameters:  pinNr: Number of GPIO pin                                 ***
+***                                                                        ***
+*** Return:      -                                                         ***
+***                                                                        ***
+*** Description                                                            ***
+*** -----------                                                            ***
+*** Creates the GPIO files in /sys/class/gpio.                             ***
+*****************************************************************************/
+int createGPIO(const char *pinNr)
+{
+	// Open Filedescriptor
+	int fd = getFileDeskriptor(SYS_EXP, O_WRONLY);
+
+	// Create GPIO Files
+	printf("Use GPIO%s\n",pinNr);
+	write(fd,pinNr,sizeof(pinNr));
+	fsync(fd);
+	close(fd);
+	return 0;
 }
 
 
@@ -112,6 +115,7 @@ int getFileDeskriptor(const char *file_path, const int MODE)
 void setDirection(const char *pinNr,const char *outin)
 {	
 	char file_path[] = SYS_ADD SYS_DIR;
+
 	file_path[strlen(SYS_ADD) - 2] = *pinNr;
 	file_path[strlen(SYS_ADD) - 1] = *(pinNr+1);
 	int fd=getFileDeskriptor(file_path,O_WRONLY);
@@ -139,6 +143,7 @@ void setDirection(const char *pinNr,const char *outin)
 void setValue(const char *pinNr, const char *value)
 {
 	char file_path[] = SYS_ADD SYS_VAL;
+
 	file_path[strlen(SYS_ADD) - 2] = *pinNr;
 	file_path[strlen(SYS_ADD) - 1] = *(pinNr+1);
 
@@ -163,10 +168,11 @@ void setValue(const char *pinNr, const char *value)
 *** -----------                                                            ***
 *** This function gives the input value, which was read.                   ***
 *****************************************************************************/
-int getValue(char *pinNr)
+int getValue(const char *pinNr)
 {
 	/* create the correct path */
 	char file_path[] = SYS_ADD SYS_VAL;
+
 	file_path[strlen(SYS_ADD) - 2] = *pinNr;
 	file_path[strlen(SYS_ADD) - 1] = *(pinNr+1);
 
@@ -197,18 +203,25 @@ int getValue(char *pinNr)
 void usage(const char *progname)
 {
 	printf("\n"
-	       "Usage: %s OPTION\n"
-		"\n"
-		"OPTION:\n"
-		"  test_output\n"
-		"  test_input\n", progname);
+	       "Usage: %s <direction> <gpio_nr> [count] [delay]\n"
+	       "\n"
+	       "  directon: set gpio direction: \"input\" or \"output\"\n"
+	       "  count:    set the number of loop iterations (default: 10)\n"
+	       "  delay:    set the delay in seconds between the set values"
+						"of the gpio (default: 1)\n"
+	       "\n"
+	       "If you want to use delay option you have to use count option "
+	       "too. So you cant use delay without using count\n"
+	       "\n", progname);
 }
 
 
 /*****************************************************************************
 *** Function:    void test_output()                                        ***
 ***                                                                        ***
-*** Parameters:  -                                                         ***
+*** Parameters:  gpio: GPIO Value as String                                ***
+***		 count: number of loop interations			   ***
+***		 delay: delay in seconds between set values		   ***
 ***                                                                        ***
 *** Return:      -                                                         ***
 ***                                                                        ***
@@ -216,57 +229,30 @@ void usage(const char *progname)
 *** -----------                                                            ***
 *** This function tests GPIO ports as output                               ***
 *****************************************************************************/
-void test_output()
+void test_output(const char *gpio, int count, int delay)
 {
-	int i;
-	createGPIO("81");
-	createGPIO("82");
-	createGPIO("83");
-	createGPIO("84");
-	createGPIO("85");
-	createGPIO("65");
-	createGPIO("64");
-	createGPIO("63");
-	setDirection("81","out");
-	setDirection("82","out");
-	setDirection("83","out");
-	setDirection("84","out");
-	setDirection("85","out");
-	setDirection("65","out");
-	setDirection("64","out");
-	setDirection("63","out");
+	int i = 0;
 
-	for(i=0;i<9;i++)
+	createGPIO(gpio);
+	setDirection(gpio, "out");
+
+	do
 	{
-		setValue("81", "1");
-		setValue("82", "1");
-		setValue("83", "1");
-		setValue("84", "1");
-		setValue("85", "1");
-		setValue("65", "1");
-		setValue("64", "1");
-		setValue("63", "1");
-
-		sleep(1);
-
-		setValue("81", "0");
-		setValue("82", "0");
-		setValue("83", "0");
-		setValue("84", "0");
-		setValue("85", "0");
-		setValue("65", "0");
-		setValue("64", "0");
-		setValue("63", "0");
-
-		sleep(1);
-	}
+		setValue(gpio, "1");
+		sleep(delay);
+		setValue(gpio, "0");
+		sleep(delay);
+		i++;
+	} while(count != i);
 }
 
 
 /*****************************************************************************
 *** Function:    void test_input()                                         ***
 ***                                                                        ***
-*** Parameters:  -                                                         ***
+*** Parameters:  gpio: GPIO Value as String                                ***
+***		 count: number of loop interations			   ***
+***		 delay: delay in seconds between get value		   ***
 ***                                                                        ***
 *** Return:      -                                                         ***
 ***                                                                        ***
@@ -274,114 +260,35 @@ void test_output()
 *** -----------                                                            ***
 *** This function tests GPIO ports as input.                               ***
 *****************************************************************************/
-void test_input()
+void test_input(const char *gpio, int count, int delay)
 {
-	createGPIO("81");
-	createGPIO("82");
-	createGPIO("83");
-	createGPIO("84");
-	createGPIO("85");
-	createGPIO("65");
-	createGPIO("64");
-	createGPIO("63");
-	setDirection("81","in");
-	setDirection("82","in");
-	setDirection("83","in");
-	setDirection("84","in");
-	setDirection("85","in");
-	setDirection("65","in");
-	setDirection("64","in");
-	setDirection("63","in");
+	int i = 0;
+	int gpio_stored = 49;
+	int gpio_val = NULL;
 
-	int GPIO81_stored=49;
-	int GPIO82_stored=49;
-	int GPIO83_stored=49;
-	int GPIO84_stored=49;
-	int GPIO85_stored=49;
-	int GPIO65_stored=49;
-	int GPIO64_stored=49;
-	int GPIO63_stored=49;
-	
-	int GPIO81;
-	int GPIO82;
-	int GPIO83;
-	int GPIO84;
-	int GPIO85;
-	int GPIO65;
-	int GPIO64;
-	int GPIO63;
+	createGPIO(gpio);
+	setDirection(gpio, "in");
+	printf("Input value %d\n", (getValue(gpio) - 48));
+
 	do
 	{
-		sleep(1);
-
-		GPIO81=getValue("81");
-		GPIO82=getValue("82");
-		GPIO83=getValue("83");
-		GPIO84=getValue("84");
-		GPIO85=getValue("85");
-		GPIO65=getValue("65");
-		GPIO64=getValue("64");
-		GPIO63=getValue("63");
-
-		if (GPIO81!=GPIO81_stored)
-		{
-			GPIO81_stored=GPIO81;
-			printf ("Input value changed GPIO81 %d\n",
-				(getValue("81")-48));
-		} 
-		if (GPIO82!=GPIO82_stored)
-		{
-			GPIO82_stored=GPIO82;
-			printf ("Input value changed GPIO82 %d\n",
-				(getValue("82")-48));
-		} 
-		if (GPIO83!=GPIO83_stored)
-		{
-			GPIO83_stored=GPIO83;
-			printf ("Input value changed GPIO83 %d\n",
-				(getValue("83")-48));
-		} 
-		if (GPIO84!=GPIO84_stored)
-		{
-			GPIO84_stored=GPIO84;
-			printf ("Input value changed GPIO84 %d\n",
-				(getValue("84")-48));
-		} 
-		if (GPIO85!=GPIO85_stored)
-		{
-			GPIO85_stored=GPIO85;
-			printf ("Input value changed GPIO85 %d\n",
-				(getValue("85")-48));
-		} 
-		if (GPIO65!=GPIO65_stored)
-		{
-			GPIO65_stored=GPIO65;
-			printf ("Input value changed GPIO65 %d\n",
-				(getValue("65")-48));
-		} 
-		if (GPIO64!=GPIO64_stored)
-		{
-			GPIO64_stored=GPIO64;
-			printf ("Input value changed GPIO64 %d\n",
-				(getValue("64")-48));
-		} 
-		if (GPIO63!=GPIO63_stored)
-		{
-			GPIO63_stored=GPIO63;
-			printf ("Input value changed GPIO63 %d\n",
-				(getValue("63")-48));
-		} 
-	
-	}while(1);	
+		sleep(delay);
+		gpio_val = getValue(gpio);
+		if(gpio_val != gpio_stored) {
+			gpio_stored = gpio_val;
+			printf("Input value changed %d\n",
+						(getValue(gpio) - 48));
+		}
+		i++;
+	} while(count != i);
 }
-
 
 
 /*****************************************************************************
 *** Function:    int main(int argc, char *argv[])                          ***
 ***                                                                        ***
 *** Parameters:  argc: Number of command line arguments                    ***
-***              argv: Pointer to command line argmuents                   ***
+***              argv: Pointer to command line arguments                   ***
 ***                                                                        ***
 *** Return:      Program return code                                       ***
 ***                                                                        ***
@@ -392,22 +299,39 @@ void test_input()
 *****************************************************************************/
 int main(int argc, const char *argv[])
 {
+	/* initialize values and set default parameters */
+	const char *gpio = NULL;
+	unsigned int count = 10;
+	unsigned int delay = 1;
+
 	/* test command line arguments */
-	if (argc != 2){
+	if ((argc < 3) || (argc > 5)) {
 		usage(argv[0]);
 		return 1;
 	}
-		
-	if (strcmp ((argv[1]),"test_input")==0)
-		test_input();
-	
-	else if (strcmp ((argv[1]),"test_output")==0)
-		test_output();
-		
-	else{  
+	gpio =argv[2];
+	if(gpio == NULL) {
 		usage(argv[0]);
 		return 1;
 	}
-					
+
+	if(argc > 3)
+		count = strtoul(argv[3], NULL, 0);
+		if(count == 0)
+			printf("Please note you have an endless loop. Abort"
+			" with strg-c\n");
+
+	if(argc > 4)
+		delay = strtoul(argv[4], NULL, 0);
+
+	if (strcmp((argv[1]),"input")==0)
+		test_input(gpio, count, delay);
+	else if (strcmp((argv[1]),"output")==0)
+		test_output(gpio, count, delay);
+	else {
+		usage(argv[0]);
+		return 1;
+	}
+
 	return 0;
 }
