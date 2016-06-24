@@ -23,7 +23,7 @@
 /*** Use spidev driver (/dev/spidev0.0) to read and write status register. ***/
 /*** Application is based on SPI testing utility (using spidev driver)     ***/
 /*** located within linux kernel documentation tree. For the SPI test you  ***/
-/*** have to connect the MISO and MOSI wire from the same device. After    ***/
+/*** have to connect the MISO and MOSI pins from the same device. After    ***/
 /*** that you can run the program. If everything is correct you will see   ***/
 /*** that the READING STATUS have the same hex values like the tx array in ***/
 /*** in the transfer function. If you see 0xff as READING STATUS then you  ***/
@@ -137,7 +137,7 @@ void usage(const char *progname)
 	       "\n"
 	       "  spidev: path to the spi device (/dev/spidevx.x)\n"
 	       "\n"
-	       "For the spi test you have to connect the miso and mosi wire "
+	       "For the spi test you have to connect the miso and mosi pins "
 	       "of one device. After that you can start the test.\n"
 	       "\n", progname);
 }
