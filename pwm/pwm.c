@@ -38,6 +38,7 @@
 #include <limits.h>			/* PATH_MAX */
 #include <errno.h>			/* errno, ENOENT */
 
+
 /* Define some values to have it easier if one of them changes in the future */
 #define PWM_PATH	"/sys/class/pwm/pwmchip"
 #define NPWM		"npwm"
@@ -210,7 +211,7 @@ int main(int argc, const char *argv[])
 	sprintf(path_pwmchip, "%s%u", PWM_PATH, pwmchip);
 	dir_pwmchip = opendir(path_pwmchip);
 	if (!dir_pwmchip)
-		return show_error("Can not access pwmchip", path_pwmchip);
+		return show_error("Can not access %s", path_pwmchip);
 
 	/* Get channel number and check if valid by reading npwm file */
 	if (argc > 2)
