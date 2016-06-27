@@ -206,6 +206,7 @@ void usage(const char *progname)
 	       "Usage: %s <direction> <gpio_nr> [count] [delay]\n"
 	       "\n"
 	       "  directon: set gpio direction: \"input\" or \"output\"\n"
+	       "  gpio_nr:  number of GPIO which will be exported \n"
 	       "  count:    set the number of loop iterations (default: 10)\n"
 	       "  delay:    set the delay in seconds between the set values"
 						"of the gpio (default: 1)\n"
