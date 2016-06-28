@@ -19,7 +19,9 @@
 /***                                                                       ***/
 /*** Description                                                           ***/
 /*** -----------                                                           ***/
-/*** Show how CAN ports are used in Linux.                                 ***/
+/*** Show how CAN ports are used in Linux. Before you can use this program ***/
+/*** you have to activate the interface with the command                   ***/
+/*** "ip link set can0 up type can bitrate 125000"                         ***/
 /***                                                                       ***/
 /*** Compile with                                                          ***/
 /***            arm-linux-gcc -o can can.c                                 ***/
@@ -199,7 +201,9 @@ void usage(const char *progname)
 			    "default is SEND_ONCE\n"
 	       "\n"
 	       "you only have the flag option if the mode is set to write. "
-	       "You can break up the SEND_START or the read mode with strg-c\n"
+	       "You can break up the SEND_START or the read mode with strg-c."
+	       "Be sure that you have activated the CAN interface. (\"ip link "
+	       "set can0 up type can bitrate 125000\"\n"
 	       "\n", progname);
 }
 
