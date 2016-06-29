@@ -166,7 +166,7 @@ void usage(const char *progname)
 	printf("\n"
 	       "Usage: %s pwmchip [channel [duty_cycle [period]]]\n"
 	       "\n"
-	       "  pwmchip:    PWM device to use (see " PWM_PATH "*)\n"
+	       "  pwmchip:    PWM device to use (/sys/class/pwm/pwmchipX)\n"
 	       "  channel:    PWM channel to use on this chip (default: 0)\n"
 	       "  duty_cycle: Duty cycle for this channel (in nanoseconds)\n"
 	       "  period:     Period (in nanoseconds, keep if not given)\n"
