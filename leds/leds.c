@@ -9,14 +9,14 @@
 /*****************************************************************************/
 /***                                                                       ***/
 /***                                                                       ***/
-/***         V Y B R I D    A R M S T O N E - A 5                          ***/
+/***                    S t a t u s   L E D s   T e s t                    ***/
 /***                                                                       ***/
 /***                                                                       ***/
 /*****************************************************************************/
 /*** File:     leds.c                                                      ***/
 /*** Author:   C. Canbaz, F&S Elektronik Systeme GmbH                 	   ***/
 /*** Created:  30.10.2015                                              	   ***/
-/*** Modified: -    	                                                   ***/
+/*** Modified: 30.06.2016 PJ                                               ***/
 /***                                                                       ***/
 /*** Description                                                           ***/
 /*** -----------                                                           ***/
@@ -24,6 +24,8 @@
 /*** Compile with                                                          ***/
 /***              arm-linux-gcc -o leds leds.c                             ***/
 /***                                                                       ***/
+/*** Modification History:                                                 ***/
+/*** 30.06.2016 PJ: Improve methods. Improve comments                      ***/
 /*****************************************************************************/
 /*** THIS CODE AND INFORMATION IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY ***/
 /*** KIND, EITHER EXPRESSED OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE   ***/
@@ -31,75 +33,47 @@
 /*** PURPOSE.                                                         	   ***/
 /*****************************************************************************/
 /* Fehler */
-/* /sys/class/leds/Status2/trigger beim ersten mal auf none keine veränderung
- * zu seheh. in der trigger datei kann man die änderung auf none sehen, jedoch
- * leuchtet die led wie als ob es auf default-on wäre.
- * wenn man als erstes auf einen anderen trigger aus none wählt, wird bei 
- * nächsten wechsel none problemlos ausgeführt.
+/* Wird die LED beim Bootvorgang auf on geschaltet kann man diese über den mode
+ * "trigger" nicht auf none (aus) schalten bzw. wenn diese auf none geschalten
+ * wird leuchtet die LED weiter. Man muss zuerst einen andere Selektierung
+ * vornehmen anstatt "none" bsp. "default-on". Nachdem dies gesetzt wurde kann
+ * mit "none" die LED ausgeschaltet werden.
  * */
-
 
 
 #include <stdio.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <string.h>
-
-
-char device_path[] = "/sys/class/leds/Status?";
-
-
-/*****************************************************************************
-*** Function:    int setModification(const char *status,                   ***
-***              const char *modification, const char *selection)          ***
-***                                                                        ***
-*** Parameters:  status:       which led modifying?                        ***
-***              modification: trigger or brightness?                      ***
-***              selection:    select an option for modification           ***
-***                                                                        ***
-*** Return:      -                                                         ***
-***                                                                        ***
-*** Description                                                            ***
-*** -----------                                                            ***
-*** This function set the options for the chosen led.                      ***
-*****************************************************************************/
-void setModification(const char *status, const char *modification,
-		 const char *selection)
-{
-	int fd = getFileDeskriptor(status, modification);
-	write(fd, selection, strlen(selection));
-	fsync(fd);
-	close(fd);	
-}
+#include <limits.h>			/* PATH_MAX */
 
 
 /*****************************************************************************
-*** Function:    int getFileDeskriptor(const char *sys, const int mode)    ***
+*** Function:    int setValue(char *path, char *value)                     ***
 ***                                                                        ***
-*** Parameters:  sys:  Path from required file                             ***
-***              mode: Open file to be read or write or both?              ***
+*** Parameters:  path:  Path to the required file                          ***
+***              value: value which will written to the file               ***
 ***                                                                        ***
-*** Return:      fd = filedescriptor                                       ***
+*** Return:      0: Success, 1: Failure                                    ***
 ***                                                                        ***
 *** Description                                                            ***
 *** -----------                                                            ***
-*** This function open the filedescriptor and returns it.                  ***
+*** This function open, write and close the file.                          ***
 *****************************************************************************/
-int getFileDeskriptor(const char *status, const char *modification)
+int setValue(char *path, char *value)
 {
-	char sys_path[100] = {"/sys/class/leds/Status"};
-	strcat(sys_path, status);
-	strcat(sys_path, "/");
-	strcat(sys_path, modification);
-	printf("sys_path %s\n", sys_path);
-	
-	int fd = open(sys_path,O_WRONLY);
+	int fd = open(path,O_WRONLY);
 	if (fd < 0)
 	{
-		perror("File could not be opened\n");
+		fprintf(stderr, "cant open device %s\n", path);
 		return 1;
 	}
-	return fd;
+
+	write(fd, value, strlen(value));
+	fsync(fd);
+	close(fd);
+
+	return 0;
 }
 
 
@@ -119,13 +93,13 @@ void usage (const char *progname)
 	printf(":\n"
 	       "Usage: %s status modification selection\n"
 	       "\n"
-	       "  status:       choose a led (one of /sys/class/leds/Status?)\n"
+	       "  status:       choose a led (one of /sys/class/leds/Status?/)\n"
 	       "  modification: select trigger or brightness to change it\n"
 	       "  selection:\n"
 			"\tfor trigger:"
 			" none nand-disk mmc0 timer heartbeat default-on\n"
 			"\tfor brightness:"
-			" 0-max.brightness(255)\n"
+			" 0 - max. brightness(255)\n"
 	       "\n", progname);
 }
 
@@ -145,18 +119,18 @@ void usage (const char *progname)
 *****************************************************************************/
 int main (int argc,const char *argv[])
 {
-
+	char path[PATH_MAX];
+	char value[PATH_MAX];
+	int ret = 0;
 	/* Get command line arguments */
-	if ((argc < 2) || (argc > 4)){
+	if (argc < 4) {
 		usage(argv[0]);
 		return 1;
 	}
-	if ((argv[1][0] > '0') && (argv[1][0] < '3') && !argv[1][1]){
-		device_path[strlen(device_path) - 1] = argv[1][0];
-		setModification(argv[1],argv[2],argv[3]);
-	}
-	else 
-		usage(argv[0]);
+	sprintf(path, "%s%s", argv[1], argv[2]);
+	sprintf(value, "%s", argv[3]);
 
-	return 0;
+	ret = setValue(path, value);
+
+	return ret;
 }
