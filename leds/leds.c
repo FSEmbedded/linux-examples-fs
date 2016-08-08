@@ -14,66 +14,61 @@
 /***                                                                       ***/
 /*****************************************************************************/
 /*** File:     leds.c                                                      ***/
-/*** Author:   C. Canbaz, F&S Elektronik Systeme GmbH                 	   ***/
-/*** Created:  30.10.2015                                              	   ***/
-/*** Modified: 30.06.2016 PJ                                               ***/
+/*** Authors:  C. Canbaz, P. Jakob, H. Keller, F&S Elektronik Systeme GmbH ***/
+/*** Created:  30.10.2015                                                  ***/
+/*** Modified: 08.08.2016 17:58:26 (HK)                                    ***/
 /***                                                                       ***/
 /*** Description                                                           ***/
 /*** -----------                                                           ***/
-/*** Show how could be use ADC ports on Vybrid-Armstone-A5/Linux.          ***/
-/*** Compile with                                                          ***/
+/*** Show how LED brightness or trigger can be set.                        ***/
+/***                                                                       ***/
+/*** Compile with:                                                         ***/
 /***              arm-linux-gcc -o leds leds.c                             ***/
 /***                                                                       ***/
 /*** Modification History:                                                 ***/
-/*** 30.06.2016 PJ: Improve methods. Improve comments                      ***/
+/*** 30.06.2016 PJ: Improve methods and comments.                          ***/
+/*** 08.08.2016 HK: Only use two arguments: led and value. A number is set ***/
+/***                as brightness, other values as trigger. Improve error  ***/
+/***                handling and comments.                                 ***/
 /*****************************************************************************/
 /*** THIS CODE AND INFORMATION IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY ***/
 /*** KIND, EITHER EXPRESSED OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE   ***/
 /*** IMPLIED WARRANTIES OF MERCHANTABILITY AND/OR FITNESS FOR A PARTICULAR ***/
-/*** PURPOSE.                                                         	   ***/
+/*** PURPOSE.                                                              ***/
 /*****************************************************************************/
-/* Fehler */
-/* Wird die LED beim Bootvorgang auf on geschaltet kann man diese über den mode
- * "trigger" nicht auf none (aus) schalten bzw. wenn diese auf none geschalten
- * wird leuchtet die LED weiter. Man muss zuerst einen andere Selektierung
- * vornehmen anstatt "none" bsp. "default-on". Nachdem dies gesetzt wurde kann
- * mit "none" die LED ausgeschaltet werden.
- * */
 
-
-#include <stdio.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <string.h>
+#include <stdio.h>			/* printf(), sprintf(), fprintf() */
+#include <dirent.h>			/* DIR, opendir() */
 #include <limits.h>			/* PATH_MAX */
+
+#define LED_PATH	"/sys/class/leds"
+
+static char path_led[PATH_MAX];
+static char path_value[PATH_MAX];
 
 
 /*****************************************************************************
-*** Function:    int setValue(char *path, char *value)                     ***
+*** Function:    int show_error(char *reason, char *bad_path)              ***
 ***                                                                        ***
-*** Parameters:  path:  Path to the required file                          ***
-***              value: value which will written to the file               ***
+*** Parameters:  reason:   Pointer to string with error reason             ***
+***              bad_path: Optional pointer to path (added as second       ***
+***                        output line if not NULL)                        ***
 ***                                                                        ***
-*** Return:      0: Success, 1: Failure                                    ***
+*** Return:      1: Failure; value is meant as final program status        ***
 ***                                                                        ***
 *** Description                                                            ***
 *** -----------                                                            ***
-*** This function open, write and close the file.                          ***
+*** Print error reason, actual error (from errno) and (if not NULL) the    ***
+*** given path. This function always returns 1, which is meant as program  ***
+*** status at progam end.                                                  ***
 *****************************************************************************/
-int setValue(char *path, char *value)
+static int show_error(const char *reason, const char *bad_path)
 {
-	int fd = open(path,O_WRONLY);
-	if (fd < 0)
-	{
-		fprintf(stderr, "cant open device %s\n", path);
-		return 1;
-	}
+	perror(reason);
+	if (bad_path)
+		fprintf(stderr, "Bad path: %s\n", bad_path);
 
-	write(fd, value, strlen(value));
-	fsync(fd);
-	close(fd);
-
-	return 0;
+	return 1;
 }
 
 
@@ -88,18 +83,16 @@ int setValue(char *path, char *value)
 *** -----------                                                            ***
 *** Show the usage of the program.                                         ***
 *****************************************************************************/
-void usage (const char *progname)
+static void usage (const char *progname)
 {
 	printf(":\n"
-	       "Usage: %s status modification selection\n"
+	       "Usage: %s led value\n"
 	       "\n"
-	       "  status:       choose a led (one of /sys/class/leds/Status?/)\n"
-	       "  modification: select trigger or brightness to change it\n"
-	       "  selection:\n"
-			"\tfor trigger:"
-			" none nand-disk mmc0 timer heartbeat default-on\n"
-			"\tfor brightness:"
-			" 0 - max. brightness(255)\n"
+	       "  led:   one of the leds in /sys/class/leds/\n"
+	       "  value: A number is set as led brightness, a trigger name is\n"
+	       "         set as led trigger. See sys/class/leds/<led>/trigger\n"
+	       "         for possible values. Common trigger names are:\n"
+	       "         'none', 'heartbeat', 'default-on', 'nand-disk'\n"
 	       "\n", progname);
 }
 
@@ -114,23 +107,37 @@ void usage (const char *progname)
 ***                                                                        ***
 *** Description                                                            ***
 *** -----------                                                            ***
-*** Parse the command line options and call the necessary functions to     ***
-*** use leds.                                                              ***
+*** Parse the command line options and set led value.                      ***
 *****************************************************************************/
 int main (int argc,const char *argv[])
 {
-	char path[PATH_MAX];
-	char value[PATH_MAX];
-	int ret = 0;
+	DIR *dir_led;
+	FILE *value;
+
 	/* Get command line arguments */
-	if (argc < 4) {
+	if (argc != 3) {
 		usage(argv[0]);
 		return 1;
 	}
-	sprintf(path, "%s%s", argv[1], argv[2]);
-	sprintf(value, "%s", argv[3]);
 
-	ret = setValue(path, value);
+	/* Determine LED directory and value path: brightness or trigger */
+	sprintf(path_led, "%s/%s", LED_PATH, argv[1]);
+	if ((argv[2][0] >= '0') && (argv[2][0] <= '9'))
+		sprintf(path_value, "%s/%s", path_led, "brightness");
+	else
+		sprintf(path_value, "%s/%s", path_led, "trigger");
+	printf("Setting %s to %s\n", path_value, argv[2]);
 
-	return ret;
+	/* Actually set value */
+	dir_led = opendir(path_led);
+	if (!dir_led)
+		return show_error("Can not access led directory", path_led);
+	value = fopen(path_value, "w");
+	if (!value)
+		return show_error("Can not access led value", path_value);
+	if ((fprintf(value, "%s", argv[2]) < 0) || (fclose(value) == EOF))
+		return show_error("Can not set value", path_value);
+	closedir(dir_led);
+
+	return 0;
 }
