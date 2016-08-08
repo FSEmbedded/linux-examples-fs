@@ -1,4 +1,4 @@
-//*****************************************************************************/
+/*****************************************************************************/
 /***     ______       _____    ______                           _          ***/
 /***    |  ____|__   / ____|  |  ____|                         | |         ***/
 /***    | |__ ( _ ) | (___    | |__  __  ____ _ _ __ ___  _ __ | | ___     ***/
@@ -14,28 +14,30 @@
 /***                                                                       ***/
 /*****************************************************************************/
 /*** File:     spidev.c                                                    ***/
-/*** Author:   Daniel Kuhne                                                ***/
+/*** Authors:  Daniel Kuhne, Patrick Jakob, Hartmut Keller                 ***/
 /*** Created:  16.09.2011                                                  ***/
-/*** Modified: 24.06.2016 (PJ)                                             ***/
+/*** Modified: 08.08.2016 11:30:36 (HK)                                    ***/
 /***                                                                       ***/
 /*** Description                                                           ***/
 /*** -----------                                                           ***/
-/*** Use spidev driver (/dev/spidev0.0) to read and write status register. ***/
-/*** Application is based on SPI testing utility (using spidev driver)     ***/
-/*** located within linux kernel documentation tree. For the SPI test you  ***/
-/*** have to connect the MISO and MOSI pins from the same device. After    ***/
-/*** that you can run the program. If everything is correct you will see   ***/
-/*** that the READING STATUS have the same hex values like the tx array in ***/
-/*** in the transfer function. If you see 0xff as READING STATUS then you  ***/
-/*** maybe connected the wrong pins or something you changed in            ***/
-/*** the program is wrong                                                  ***/
+/*** Use the spidev driver to transfer some test data.  No real SPI device ***/
+/*** needs to be connected, the program will read back the data that it is ***/
+/*** writing at the same time. To make this work you have to connect (loop ***/
+/*** back) the MOSI to the MISO line.                                      ***/
+/***                                                                       ***/
+/*** A successful test run will show the same values for sent and received ***/
+/*** data.  If the received data only shows 0xFF values, then the pins are ***/
+/*** not connected correctly.                                              ***/
 /***                                                                       ***/
 /*** Compile with:                                                         ***/
 /***              arm-linux-gcc -o spidev spidev.c                         ***/
 /***                                                                       ***/
 /*** Modification History:                                                 ***/
-/*** 24.06.2016 PJ: change c-file name, works now for all boards because   ***/
-/***                the user have to deliver the device. Improve headers   ***/
+/*** 24.06.2016 PJ: Change C file name, works now for all boards because   ***/
+/***                the user has to provide the device. Improve comments.  ***/
+/*** 08.08.2016 HK: Allow setting SPI mode and speed_hz, show sent and re- ***/
+/***                reived data, compare it. Simplify code. Improve error  ***/
+/***                handling and comments.                                 ***/
 /*****************************************************************************/
 /*** THIS CODE AND INFORMATION IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY ***/
 /*** KIND, EITHER EXPRESSED OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE   ***/
@@ -43,79 +45,46 @@
 /*** PURPOSE.                                                              ***/
 /*****************************************************************************/
 
-#include <stdint.h>
-#include <unistd.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <fcntl.h>
-#include <sys/ioctl.h>
-#include <linux/spi/spidev.h>
+#include <stdint.h>			/* uint8_t, uint16_t, ... */
+#include <stdlib.h>			/* strtoul() */
+#include <stdio.h>			/* printf(), perror() */
+#include <unistd.h>			/* sleep(), close() */
+#include <fcntl.h>			/* open(), O_RDWR */
+#include <sys/ioctl.h>			/* ioctl(), ... */
+#include <linux/spi/spidev.h>		/* struct spi_ioc_transfer, ... */
 
-#define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
+#define TEST_LEN 5
 
-
-static const char *device = "/dev/spidev0.0";
 static uint8_t mode = SPI_MODE_2;
-static uint8_t bits = 8;
-static uint32_t speed = 2000000;
-static uint16_t delay = 0;
+static uint8_t bits_per_word = 8;
+static uint16_t delay_usecs = 0;
+static uint32_t speed_hz = 2000000;
+static const uint8_t tx[TEST_LEN] = {0x03, 0x55, 0x40, 0x95, 0xBE};
+static uint8_t rx[TEST_LEN];
 
 
 /*****************************************************************************
-*** Function:    void pabort(const char *s)                                ***
+*** Function:    int show_error(char *reason, char *bad_path)              ***
 ***                                                                        ***
-*** Parameters:  s: error message	                                   ***
+*** Parameters:  reason:   Pointer to string with error reason             ***
+***              bad_path: Optional pointer to path (added as second       ***
+***                        output line if not NULL)                        ***
 ***                                                                        ***
-*** Return:      -                                                         ***
-***                                                                        ***
-*** Description                                                            ***
-*** -----------                                                            ***
-*** Shows the error message                                                ***
-*****************************************************************************/
-static void pabort(const char *s)
-{
-	perror(s);
-	abort();
-}
-
-
-/*****************************************************************************
-*** Function:    void transfer(int fd)                                     ***
-***                                                                        ***
-*** Parameters:  fd: filedescriptor                                        ***
-***                                                                        ***
-*** Return:      -                                                         ***
+*** Return:      1: Failure; value is meant as final program status        ***
 ***                                                                        ***
 *** Description                                                            ***
 *** -----------                                                            ***
-*** Write and read function of the spi device                              ***
+*** Print error reason, actual error (from errno) and (if not NULL) the    ***
+*** given path. This function always returns 1, which is meant as program  ***
+*** status at progam end.                                                  ***
 *****************************************************************************/
-static void transfer(int fd)
+int show_error(const char *reason, const char *bad_path)
 {
-	int ret;
-	uint8_t tx[] = {0x03, 0x55,0x40, 0x95, 0xBE};
-	uint8_t rx[ARRAY_SIZE(tx)] = {0, };
+	perror(reason);
+	if (bad_path)
+		fprintf(stderr, "Bad path: %s\n", bad_path);
 
-	sleep(1);
-	printf("READING STATUS\n");
-	struct spi_ioc_transfer tr1 = {
-		.tx_buf = (unsigned long)tx,
-		.rx_buf = (unsigned long)rx,
-		.len = ARRAY_SIZE(tx),
-		.delay_usecs = delay,
-		.speed_hz = speed,
-		.bits_per_word = bits,
-	};
-
-	ret = ioctl(fd, SPI_IOC_MESSAGE(1), &tr1);
-	if (ret < 1)
-		pabort("can't send spi message");
-
-	for(ret = 0; ret < ARRAY_SIZE(tx); ret++)
-	{
-		printf("0x%.2x ", rx[ret]);
-	}
-	printf("\n");
+	return 1;
 }
 
 
@@ -133,12 +102,15 @@ static void transfer(int fd)
 void usage(const char *progname)
 {
 	printf("\n"
-	       "Usage: %s <spidev>\n"
+	       "Usage: %s device [mode [speed_hz]]\n"
 	       "\n"
-	       "  spidev: path to the spi device (/dev/spidevx.x)\n"
+	       "  device:   path to the spi device (/dev/spidevx.x)\n"
+	       "  mode:     SPI mode (0..3, default 2)\n"
+	       "  speed_hz: Transfer speed (default 2000000 Hz)\n"
 	       "\n"
-	       "For the spi test you have to connect the miso and mosi pins "
-	       "of one device. After that you can start the test.\n"
+	       "For the SPI test you have to connect the MISO and MOSI pins\n"
+	       "of one device to loop back the sent data. After that you can\n"
+	       "start the test.\n"
 	       "\n", progname);
 }
 
@@ -158,55 +130,76 @@ void usage(const char *progname)
 *****************************************************************************/
 int main(int argc, const char *argv[])
 {
-	int ret = 0;
+	int i;
 	int fd;
+	struct spi_ioc_transfer transfer;
 
-	/* test command line arguments */
-	if (argc < 1) {
+	/* Parse command line arguments */
+	if ((argc < 2) || (argc > 4)) {
 		usage(argv[0]);
 		return 1;
 	}
-	/* If an argument is given, it is the spi device */
-	device = argv[1];
+	if (argc > 2)
+		mode = strtoul(argv[2], NULL, 0) & 3;
+	if (argc > 3)
+		speed_hz = strtoul(argv[3], NULL, 0);
 
-	fd = open(device, O_RDWR);
+	fd = open(argv[1], O_RDWR);
 	if (fd < 0)
-		pabort("->can't open device");
+		return show_error("Can not open device", argv[1]);
 
-	/* spi mode */
-	ret = ioctl(fd, SPI_IOC_WR_MODE, &mode);
-	if (ret == -1)
-		pabort("can't set spi mode");
+	/* Set SPI mode */
+	if (ioctl(fd, SPI_IOC_WR_MODE, &mode) == -1)
+		return show_error("Can not set SPI mode", NULL);
+	if (ioctl(fd, SPI_IOC_RD_MODE, &mode) == -1)
+		return show_error("Can not get SPI mode", NULL);
 
-	ret = ioctl(fd, SPI_IOC_RD_MODE, &mode);
-	if (ret == -1)
-		pabort("can't get spi mode");
+	/* Set bits per word */
+	if (ioctl(fd, SPI_IOC_WR_BITS_PER_WORD, &bits_per_word) == -1)
+		return show_error("Can not set bits per word", NULL);
+	if (ioctl(fd, SPI_IOC_RD_BITS_PER_WORD, &bits_per_word) == -1)
+		return show_error("Can not get bits per word", NULL);
 
-	/* bits per word */
-	ret = ioctl(fd, SPI_IOC_WR_BITS_PER_WORD, &bits);
-	if (ret == -1)
-		pabort("can't set bits per word");
+	/* Set maximum transfer speed */
+	if (ioctl(fd, SPI_IOC_WR_MAX_SPEED_HZ, &speed_hz) == -1)
+		return show_error("Can not set max speed hz", NULL);
+	if (ioctl(fd, SPI_IOC_RD_MAX_SPEED_HZ, &speed_hz) == -1)
+		return show_error("Can not get max speed hz", NULL);
 
-	ret = ioctl(fd, SPI_IOC_RD_BITS_PER_WORD, &bits);
-	if (ret == -1)
-		pabort("can't get bits per word");
+	/* Show settings and data to send */
+	printf("SPI mode:      %d\n", mode);
+	printf("Bits per word: %d\n", bits_per_word);
+	printf("Max. speed:    %d Hz\n", speed_hz);
+	printf("Sent data:    ");
+	for (i = 0; i < TEST_LEN; i++)
+		printf(" 0x%02X", tx[i]);
+	printf("\n");
 
-	/* max speed hz */
-	ret = ioctl(fd, SPI_IOC_WR_MAX_SPEED_HZ, &speed);
-	if (ret == -1)
-		pabort("can't set max speed hz");
+	sleep(1);
 
-	ret = ioctl(fd, SPI_IOC_RD_MAX_SPEED_HZ, &speed);
-	if (ret == -1)
-		pabort("can't get max speed hz");
-
-	printf("spi mode: %d\n", mode);
-	printf("bits per word: %d\n", bits);
-	printf("max speed: %d Hz (%d KHz)\n", speed, speed/1000);
-
-	transfer(fd);
+	/* Actually do the transfer */
+	transfer.tx_buf = (unsigned long)tx;
+	transfer.rx_buf = (unsigned long)rx;
+	transfer.len = TEST_LEN;
+	transfer.delay_usecs = delay_usecs;
+	transfer.speed_hz = speed_hz;
+	transfer.bits_per_word = bits_per_word;
+	if (ioctl(fd, SPI_IOC_MESSAGE(1), &transfer) == -1)
+		return show_error("Can not send SPI message", NULL);
 
 	close(fd);
 
-	return ret;
+	/* Show received data and compare data with sent data */
+	printf("Received data:");
+	for (i = 0; i < TEST_LEN; i++)
+		printf(" 0x%02X", rx[i]);
+	printf("\n");
+	for (i = 0; i < TEST_LEN; i++) {
+		if (rx[i] != tx[i])
+			break;
+	}
+	printf("-> Sent and received data %s.\n",
+	       (i < TEST_LEN) ? "differs" : "is identical");
+
+	return 0;
 }
