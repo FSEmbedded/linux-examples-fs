@@ -14,31 +14,63 @@
 /***                                                                       ***/
 /*****************************************************************************/
 /*** File:     backlight.c                                                 ***/
-/*** Author:   Daniel Kuhne                                                ***/
+/*** Authors:  D. Kuhne, P. Jakob, H. Keller  F&S Elektronik Systeme GmbH  ***/
 /*** Created:  19.10.2009                                                  ***/
-/*** Modified: 25.10.2010 16:04:51 (HK)                                    ***/
+/*** Modified: 08.08.2016 18:49:04 (HK)                                    ***/
 /***                                                                       ***/
-/*** Description:                                                          ***/
-/*** Show how to set the backlight brightness under linux via              ***/
-/*** /sys/class/backlight/backlight_xxx.                                   ***/
+/*** Description                                                           ***/
+/*** -----------                                                           ***/
+/*** Show how to set the backlight brightness under linux.                 ***/
 /***                                                                       ***/
 /*** Compile with                                                          ***/
 /***            arm-linux-gcc -o backlight backlight.c                     ***/
 /***                                                                       ***/
 /*** Modification History:                                                 ***/
-/*** 25.10.2010 HK: Improved header comments. Removed unused variable i.   ***/
+/*** 25.10.2010 HK: Improve header comments. Remove unused variable i.     ***/
 /*** 24.06.2016 PJ: Improve Header and optimize code.                      ***/
+/*** 08.08.2016 HK: If only backlight device is given, show current value. ***/
+/***                Simplify code, improve error handling and comments.    ***/
 /*****************************************************************************/
 /*** THIS CODE AND INFORMATION IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY ***/
 /*** KIND, EITHER EXPRESSED OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE   ***/
 /*** IMPLIED WARRANTIES OF MERCHANTABILITY AND/OR FITNESS FOR A PARTICULAR ***/
 /*** PURPOSE.                                                              ***/
 /*****************************************************************************/
-#include <stdio.h>			/* fprintf */
+
+#include <stdio.h>			/* printf(), fprintf(), ... */
+#include <dirent.h>			/* DIR, opendir() */
 #include <stdlib.h>			/* strtoul() */
-#include <unistd.h>
-#include <fcntl.h>			/* open, read, write */
 #include <limits.h>			/* PATH_MAX */
+
+#define BACKLIGHT_PATH	"/sys/class/backlight"
+
+static char path_backlight[PATH_MAX];
+static char path[PATH_MAX];
+
+
+/*****************************************************************************
+*** Function:    int show_error(char *reason, char *bad_path)              ***
+***                                                                        ***
+*** Parameters:  reason:   Pointer to string with error reason             ***
+***              bad_path: Optional pointer to path (added as second       ***
+***                        output line if not NULL)                        ***
+***                                                                        ***
+*** Return:      1: Failure; value is meant as final program status        ***
+***                                                                        ***
+*** Description                                                            ***
+*** -----------                                                            ***
+*** Print error reason, actual error (from errno) and (if not NULL) the    ***
+*** given path. This function always returns 1, which is meant as program  ***
+*** status at progam end.                                                  ***
+*****************************************************************************/
+static int show_error(const char *reason, const char *bad_path)
+{
+	perror(reason);
+	if (bad_path)
+		fprintf(stderr, "Bad path: %s\n", bad_path);
+
+	return 1;
+}
 
 
 /*****************************************************************************
@@ -52,64 +84,14 @@
 *** -----------                                                            ***
 *** Show the usage of the program.                                         ***
 *****************************************************************************/
-void usage(const char *progname)
+static void usage(const char *progname)
 {
 	printf("\n"
-	       "Usage: %s <backlight_device> [value]\n"
+	       "Usage: %s device [value]\n"
 	       "\n"
-	       "  backlight_device: Path to the backlight which you will test\n"
-	       "  value: brightness level. Value can be between 0-15\n"
+	       "  device: Backlight device (in /sys/class/backlight)\n"
+	       "  value:  New brightness level; if not given, show current brightness\n"
 	       "\n", progname);
-}
-
-
-/*****************************************************************************
-*** Function:    int set_backlight(char *brightness, char *max_brightness, ***
-***              unsigned int value)                                       ***
-***                                                                        ***
-*** Parameters:  brightness:     Path to the brightness parameter          ***
-***		 max_brightness: Path to the max brightness parameter      ***
-***              value:          brightness level                          ***
-***                                                                        ***
-*** Return:      0: Success, 1: Failure                                    ***
-***                                                                        ***
-*** Description                                                            ***
-*** -----------                                                            ***
-*** write the new backlight brightness                                     ***
-*****************************************************************************/
-int set_backlight(char *brightness, char *max_brightness, unsigned int value)
-{
-	int fd = NULL;
-	int max_brightness_val = NULL;
-	char buf[4];
-
-	fd = open(max_brightness, O_RDONLY);
-	if(fd == -1) {
-		fprintf(stderr, "cant open device %s\n", brightness);
-		return 1;
-	}
-
-	read(fd, buf, sizeof(buf));
-	max_brightness_val = atoi(buf);
-	close(fd);
-	if(value > max_brightness_val || value < 0) {
-		fprintf(stderr, "wrong value parameter %d\n", value);
-		return 1;
-	}
-
-	fd = open(brightness, O_WRONLY);
-	if (fd == -1) {
-		fprintf(stderr, "cant open device %s\n", brightness);
-		return 1;
-	}
-
-	sprintf(buf, "%d", value);
-	write(fd, buf, 3);
-	fsync(fd);
-	printf("set brightness to %d\n", value);
-	close(fd);
-
-	return 0;
 }
 
 
@@ -123,32 +105,49 @@ int set_backlight(char *brightness, char *max_brightness, unsigned int value)
 ***                                                                        ***
 *** Description                                                            ***
 *** -----------                                                            ***
-*** Parse the command line options and call the necessary functions to     ***
-*** use backlight                                                          ***
+*** Parse the command line options and access backlight.                   ***
 *****************************************************************************/
 int main(int argc, const char *argv[])
 {
-	char brightness[PATH_MAX];
-	char max_brightness[PATH_MAX];
-	unsigned int value = 5;
-	int ret = 0;
+	int value;
+	DIR *dir_backlight;
+	FILE *file;
 
-	/* test command line arguments */
-	if (argc < 2) {
+	/* Parse command line arguments */
+	if ((argc < 2) || (argc > 3)) {
 		usage(argv[0]);
 		return 1;
 	}
 
-	if(argc > 2)
+	/* Open backlight directory */
+	sprintf(path_backlight, "%s/%s", BACKLIGHT_PATH, argv[1]);
+	sprintf(path, "%s/brightness", path_backlight);
+	dir_backlight = opendir(path_backlight);
+	if (!dir_backlight)
+		return show_error("Can not access backlight directory",
+				  path_backlight);
+
+	/* If requested, set new value */
+	if (argc > 2) {
 		value = strtoul(argv[2], NULL, 0);
-
-	sprintf(brightness, "%sbrightness", argv[1]);
-	sprintf(max_brightness, "%smax_brightness", argv[1]);
-	ret = set_backlight(brightness, max_brightness, value);
-	if(ret) {
-		usage(argv[0]);
-		return 1;
+		printf("Set new brightness %d\n", value);
+		file = fopen(path, "w");
+		if (!file)
+			return show_error("Can not access brightness", path);
+		if ((fprintf(file, "%d", value) < 0) || (fclose(file) == EOF))
+			return show_error("Can not set brigthness", path);
 	}
+
+	/* Read current value */
+	file = fopen(path, "r");
+	if (!file)
+		return show_error("Can not open brightness", path);
+	value = -1;
+	fscanf(file, "%d", &value);
+	printf("Backlight '%s' has brightness %d\n", argv[1], value);
+
+	fclose(file);
+	closedir(dir_backlight);
 
 	return 0;
 }
